@@ -12,6 +12,7 @@
       --green-dim: #00aa66;
       --text: #d7ffe9;
       --border: #123d2a;
+      --system: #7fe3b4;
     }
 
     * { box-sizing: border-box; font-family: system-ui, monospace; }
@@ -40,14 +41,18 @@
     }
 
     header {
-      padding: 12px 16px;
-      border-bottom: 1px solid var(--border);
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      color: var(--green);
-      font-weight: 600;
-    }
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--panel);
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: var(--green);
+  font-weight: 600;
+}
 
     .screen {
       flex: 1;
@@ -94,15 +99,26 @@
       flex: 1;
       overflow-y: auto;
       padding-right: 6px;
+      scroll-behavior: smooth;
     }
 
     .msg {
       margin-bottom: 10px;
-      padding: 8px 10px;
-      border-left: 3px solid var(--green-dim);
+      padding: 6px 10px;
       background: #060e09;
       border-radius: 4px;
-      opacity: 1;
+    }
+
+    .msg.system {
+      color: var(--system);
+      border-left: 3px solid var(--system);
+    }
+
+    .msg .header-line {
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
+      margin-bottom: 2px;
     }
 
     .msg .name {
@@ -111,15 +127,20 @@
       font-size: 13px;
     }
 
+    .msg.system .name {
+      color: var(--system);
+    }
+
+    .msg .time {
+      font-size: 11px;
+      opacity: 0.7;
+      font-family: monospace;
+    }
+
     .msg .text {
       font-size: 14px;
       white-space: pre-wrap;
-    }
-
-    /* fade-out effect after 1 minute */
-    .msg.fade {
-      opacity: 0;
-      transition: opacity 0.6s ease;
+      word-wrap: break-word;
     }
 
     .inputbar {
@@ -173,7 +194,6 @@
         <div class="messages" id="messages"></div>
         <div class="inputbar">
           <input id="msgInput" type="text" placeholder="Type a message..." />
-          <input id="fileInput" type="file" />
           <button onclick="sendMsg()">Send</button>
         </div>
       </div>
@@ -181,29 +201,28 @@
 
     <footer>Session-only profile · No accounts · Made by Meau · Powered by Github and SupaBase </footer>
   </div>
+
   <!-- Supabase client -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script>
     document.addEventListener('DOMContentLoaded', () => {
-      // ---------- SUPABASE CLIENT ----------
-      const supabaseUrl = 'https://bqwdogueiqutcqsdxhuk.supabase.co';
-      const supabaseKey = 'sb_publishable_AdKx8RYpbDdfUGe-iiktHQ_Ua_BVfnE';
-      const supabase = window.supabase.createClient(supabaseUrl, supabaseKey);
 
-      // ---------- DOM ELEMENTS ----------
-      const nameInput   = document.getElementById('nameInput');
-      const roomInput   = document.getElementById('roomInput');
-      const msgInput    = document.getElementById('msgInput');
-      const messagesEl  = document.getElementById('messages');
-      const userTag     = document.getElementById('userTag');
-      const roomTag     = document.getElementById('roomTag');
+      const supabase = window.supabase.createClient(
+        'https://bqwdogueiqutcqsdxhuk.supabase.co',
+        'sb_publishable_AdKx8RYpbDdfUGe-iiktHQ_Ua_BVfnE'
+      );
 
-      // ---------- STATE ----------
+      const nameInput = document.getElementById('nameInput');
+      const roomInput = document.getElementById('roomInput');
+      const msgInput = document.getElementById('msgInput');
+      const messagesEl = document.getElementById('messages');
+      const userTag = document.getElementById('userTag');
+      const roomTag = document.getElementById('roomTag');
+
       let username = null;
       let room = null;
       let supabaseChannel = null;
 
-      // Expose functions for inline onclick
       window.setName = setName;
       window.joinRoom = joinRoom;
       window.generateAndJoin = generateAndJoin;
@@ -224,22 +243,23 @@
       }
 
       function setName() {
-        const val = nameInput.value.trim() || 'anonymous';
-        username = val;
+        username = nameInput.value.trim() || 'anonymous';
         userTag.textContent = username;
         show('screen-room');
       }
 
+      function formatTime(ts) {
+        const d = ts ? new Date(ts) : new Date();
+        return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      }
+
       async function joinRoom() {
-        const val = (roomInput.value.trim() || generateRoom()).toUpperCase();
-        room = val;
+        room = (roomInput.value.trim() || generateRoom()).toUpperCase();
         roomTag.textContent = room;
         show('screen-chat');
 
-        // Clear existing messages
         messagesEl.innerHTML = '';
 
-        // Load previous messages from Supabase
         const { data, error } = await supabase
           .from('messages')
           .select('*')
@@ -247,87 +267,73 @@
           .order('inserted_at', { ascending: true });
 
         if (error) {
-          console.error('Error loading messages:', error);
-          addMsg('SYSTEM', 'Error loading previous messages.');
+          addMsg('SYSTEM', 'Error loading previous messages.', null, true);
         } else {
-          data.forEach(m => addMsg(m.username, m.content));
+          data.forEach(m => addMsg(m.username, m.content, m.inserted_at, false));
         }
 
-        addMsg('SYSTEM', `Joined room: ${room}`);
+        addMsg('SYSTEM', `Joined room: ${room}`, null, true);
 
-        // Unsubscribe previous channel if any
-        if (supabaseChannel) {
-          supabase.removeChannel(supabaseChannel);
-        }
+        if (supabaseChannel) supabase.removeChannel(supabaseChannel);
 
-        // Realtime subscription for this room
         supabaseChannel = supabase
           .channel('room-' + room)
-          .on(
-            'postgres_changes',
+          .on('postgres_changes',
             { event: 'INSERT', schema: 'public', table: 'messages', filter: `room=eq.${room}` },
             payload => {
               const m = payload.new;
-              // Avoid duplicating our own message if it’s already visible
-              addMsg(m.username, m.content);
+              addMsg(m.username, m.content, m.inserted_at, false);
             }
           )
-          .subscribe(async (status) => {
-            if (status === 'SUBSCRIBED') {
-              console.log('Realtime subscribed to room', room);
-            }
-          });
+          .subscribe();
       }
 
       async function sendMsg() {
         const text = msgInput.value.trim();
         if (!text) return;
-        if (!username) {
-          alert('Set a name first.');
-          return;
-        }
-        if (!room) {
-          alert('Join a room first.');
-          return;
-        }
 
-        const { error } = await supabase
-          .from('messages')
-          .insert([{ room, username, content: text }]);
+        await supabase.from('messages').insert([{ room, username, content: text }]);
 
-        if (error) {
-          console.error('Error sending message:', error);
-          addMsg('SYSTEM', 'Error sending message.');
-          return;
-        }
-
-        // We rely on realtime to deliver the message to all clients, including us.
         msgInput.value = '';
       }
 
-      function addMsg(name, text) {
-        if (!messagesEl) return;
+      function addMsg(name, text, timestamp = null, isSystem = false) {
 
         const div = document.createElement('div');
         div.className = 'msg';
-        div.innerHTML = `<div class="name">${name}</div><div class="text">${text}</div>`;
+        if (isSystem) div.classList.add('system');
+
+        const header = document.createElement('div');
+        header.className = 'header-line';
+
+        const nameSpan = document.createElement('span');
+        nameSpan.className = 'name';
+        nameSpan.textContent = name;
+
+        const timeSpan = document.createElement('span');
+        timeSpan.className = 'time';
+        timeSpan.textContent = formatTime(timestamp);
+
+        header.appendChild(nameSpan);
+        header.appendChild(timeSpan);
+
+        const textDiv = document.createElement('div');
+        textDiv.className = 'text';
+        textDiv.textContent = text;
+
+        div.appendChild(header);
+        div.appendChild(textDiv);
+
+        const nearBottom =
+          messagesEl.scrollTop + messagesEl.clientHeight >= messagesEl.scrollHeight - 80;
+
         messagesEl.appendChild(div);
-        messagesEl.scrollTop = messagesEl.scrollHeight;
 
-        // fade out after 60 seconds and remove
-        const fadeMs = 60000;
-        const removeDelayMs = 800;
-
-        setTimeout(() => {
-          div.classList.add('fade');
-        }, fadeMs);
-
-        setTimeout(() => {
-          if (div.parentNode) {
-            div.parentNode.removeChild(div);
-          }
-        }, fadeMs + removeDelayMs);
+        if (nearBottom || name === username) {
+          div.scrollIntoView({ behavior: 'smooth' });
+        }
       }
+
     });
   </script>
 </body>
