@@ -213,20 +213,7 @@
       );
 
       const nameInput = document.getElementById('nameInput');
-      msgInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' && !e.shiftKey) {
-    e.preventDefault();
-    sendMsg();
-  }
-});
       const roomInput = document.getElementById('roomInput');
-      msgInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' && !e.shiftKey) {
-    e.preventDefault();
-    sendMsg();
-  }
-});
-
       const msgInput = document.getElementById('msgInput');
       msgInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey) {
@@ -234,6 +221,7 @@
     sendMsg();
   }
 });
+      
       const messagesEl = document.getElementById('messages');
       const userTag = document.getElementById('userTag');
       const roomTag = document.getElementById('roomTag');
